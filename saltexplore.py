@@ -50,7 +50,7 @@ def get_config(cfgpath):
 
 class JSONEncoder(json.JSONEncoder):
     def default(self, o):
-        if isinstance(o, datetime):
+        if isinstance(o, datetime.date):
             return o.strftime("%Y %m %d %H:%M:%S")
         return json.JSONEncoder.default(self, o)
 
@@ -75,7 +75,7 @@ def d42_insert(dev42, nodes, options, static_opt):
     for node in [nodes[x] for x in nodes]:
         if not node:
             logger.debug("Skip node: no proper node data")
-            continue 
+            continue
         if 'nodename' not in node:
             logger.debug("Skip node: no name found")
             continue
@@ -123,18 +123,20 @@ def d42_insert(dev42, nodes, options, static_opt):
             if 'serialnumber' in node:
                 serial_no = node['serialnumber']
             if not serial_no and 'system_serialnumber' in node:
-                seral_no = node['system_serialnumber']
+                serial_no = node['system_serialnumber']
             if serial_no:
-                data.update({'serial_no': seral_no})
+                data.update({'serial_no': serial_no})
 
-            nodetype = None
+            nodetype = 'physical'
             virtual_subtype = None
             is_virtual = 'no'
-            if 'virtual' in node and node['virtual'] is not None:
+            if node['virtual'] != nodetype:
                 is_virtual = 'yes'
                 nodetype = 'virtual'
                 if 'virtual_subtype' in node:
                     virtual_subtype = node['virtual_subtype']
+                else:
+                    virtual_subtype = node['virtual']
 
             if virtual_subtype is not None:
                 data.update({'virtual_subtype': virtual_subtype})
@@ -214,8 +216,8 @@ def d42_insert(dev42, nodes, options, static_opt):
 
             if node.get('ip_interfaces') and node.get('hwaddr_interfaces'):
                 for ifsname, ifs in node.get('ip_interfaces').items():
-                    if ifsname.startswith('lo'):
-                        continue  # filter out local interface
+                    if ifsname.startswith('lo') or ifsname.startswith('tun') or ifsname.startswith('tap'):
+                        continue  # filter out local and tunnel
 
                     for ip in ifs:
                         if ip.startswith('127.0'):
@@ -278,15 +280,16 @@ def main():
         logger.debug("Got %s nodes from file" % len(salt_nodes))
 
     for node in salt_nodes:
-        if not node:
-            continue 
-        if not isinstance(node, dict):
-            continue
-        if 'nodename' not in node:
-            continue
-        salt_nodes[node]['disks'] = local.cmd(node, 'disk.blkid')
-        salt_nodes[node]['usage'] = local.cmd(node, 'disk.usage')
-        salt_nodes[node]['cpus'] = local.cmd(node, 'status.cpuinfo')
+        try:
+            if not node:
+                continue
+            if type(salt_nodes[node]) != dict:
+                continue
+            salt_nodes[node]['disks'] = local.cmd(node, 'disk.blkid')
+            salt_nodes[node]['usage'] = local.cmd(node, 'disk.usage')
+            salt_nodes[node]['cpus'] = local.cmd(node, 'status.cpuinfo')
+        except Exception as e:
+            logger.exception("Error (%s) getting device information %s" % (type(e), node))
 
     if args.savenodes:
         with open(args.savenodes, 'w') as wnf:
@@ -306,5 +309,5 @@ def main():
 
 if __name__ == "__main__":
     ret_val = main()
-    print 'Done'
+    print('Done')
     sys.exit(ret_val)
